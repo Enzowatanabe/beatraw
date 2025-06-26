@@ -1,16 +1,30 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
-  <meta charset="UTF-8" />
-  <title>Jogo de Ritmo</title>
+  <meta charset="UTF-8">
+  <title>RHYTHM JAM</title>
+  <!-- Phaser 3 via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.js"></script>
   <style>
-    body { margin:0; padding:0; background:#2d2d2d; }
-    canvas { display:block; margin:0 auto; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #222;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      image-rendering: auto;
+      /* Não force width nem height aqui! Phaser cuida disso. */
+    }
   </style>
 </head>
 <body>
-  <!-- Phaser vai criar o canvas -->
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
+  <!-- Seu jogo será injetado no <canvas> aqui -->
   <script src="js/game.js"></script>
 </body>
 </html>
+

@@ -6,8 +6,8 @@ class PreloadScene extends Phaser.Scene {
     this.load.json('bm1', 'assets/beatmaps/musica1.json');
     this.load.audio('musica2', ['assets/audio/musica2.mp3']);
     this.load.json('bm2', 'assets/beatmaps/musica2.json');
-    this.load.audio('musicac', ['assets/audio/musicac.mp3']);
-    this.load.json('bmc', 'assets/beatmaps/musicac.json');
+    this.load.audio('musica3', ['assets/audio/musica3.mp3']);
+    this.load.json('bm3', 'assets/beatmaps/musica3.json');
   }
   create() { this.scene.start('MenuScene'); }
 }
@@ -26,8 +26,8 @@ class MenuScene extends Phaser.Scene {
       { label: 'Música 1 – Difícil', songKey: 'musica1', beatmapKey: 'bm1', speed: 1.5 },
       { label: 'Música 2 – Fácil',   songKey: 'musica2', beatmapKey: 'bm2', speed: 1 },
       { label: 'Música 2 – Difícil', songKey: 'musica2', beatmapKey: 'bm2', speed: 1.5 },
-      { label: 'Música C – Fácil',   songKey: 'musicac', beatmapKey: 'bmc', speed: 1 },
-      { label: 'Música C – Difícil', songKey: 'musicac', beatmapKey: 'bmc', speed: 1.5 }
+      { label: 'Música 3 – Fácil',   songKey: 'musica3', beatmapKey: 'bm3', speed: 1 },
+      { label: 'Música 3 – Difícil', songKey: 'musica3', beatmapKey: 'bm3', speed: 1.5 }
     ];
 
     gameOptions.forEach((opt, i) => {
@@ -42,7 +42,7 @@ class MenuScene extends Phaser.Scene {
     const editorOptions = [
       { label: 'Editar Música 1', songKey: 'musica1', beatmapKey: 'bm1' },
       { label: 'Editar Música 2', songKey: 'musica2', beatmapKey: 'bm2' },
-      { label: 'Editar Música C', songKey: 'musicac', beatmapKey: 'bmc' }
+      { label: 'Editar Música 3', songKey: 'musica3', beatmapKey: 'bm3' }
     ];
     editorOptions.forEach((opt, i) => {
       this.add.text(cx, 450 + i * 28, opt.label, { fontSize: '16px', color: '#ffd700' })
@@ -125,6 +125,7 @@ class GameScene extends Phaser.Scene {
     // Áudio
     this.track   = this.sound.add(this.songKey);
     this.started = false;
+    this.ready   = false; // Novo: bloqueia update até terminar a contagem
 
     // Botão de início
     const startBtn = this.add.text(cx, h * 0.5, 'COMEÇAR', { fontSize: '28px', color: '#fff', backgroundColor: '#222', padding: { left: 15, right: 15, top: 10, bottom: 10 } })
@@ -134,10 +135,7 @@ class GameScene extends Phaser.Scene {
         if (this.started) return;
         this.started = true;
         startBtn.destroy();
-        this.sound.context.resume().then(() => {
-          this.songStartTime = this.sound.context.currentTime;
-          this.track.play();
-        });
+        this.iniciarContagemRegressiva();
       });
 
     // ESC volta ao menu
@@ -146,8 +144,38 @@ class GameScene extends Phaser.Scene {
       this.scene.start('MenuScene');
     });
   }
+  iniciarContagemRegressiva() {
+    const cx = this.scale.width / 2, cy = this.scale.height / 2;
+    const countText = this.add.text(cx, cy, '', { fontSize: '80px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+
+    let count = 3;
+    this.ready = false;
+    const tick = () => {
+      if (count > 0) {
+        countText.setText(count);
+        count--;
+        this.time.delayedCall(800, tick);
+      } else {
+        countText.setText("VAI!");
+        this.time.delayedCall(650, () => {
+          countText.destroy();
+          this.somenteAgoraComeca();
+        });
+      }
+    };
+    tick();
+  }
+  somenteAgoraComeca() {
+    // Só começa a rodar update, música e notas agora!
+    this.sound.context.resume().then(() => {
+      this.songStartTime = this.sound.context.currentTime;
+      this.track.play();
+      this.ready = true;
+    });
+  }
   update() {
-    if (!this.started) return;
+    if (!this.started || !this.ready) return; // Espera a contagem acabar
+
     const currentTime = this.sound.context.currentTime - this.songStartTime;
 
     // Spawn

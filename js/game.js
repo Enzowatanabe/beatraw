@@ -21,6 +21,34 @@ class MenuScene extends Phaser.Scene {
     this.add.text(cx, 50, 'RHYTHM JAM', { fontSize: '36px', color: '#fff' }).setOrigin(0.5);
     this.add.text(cx, 90, 'Selecione música e dificuldade', { fontSize: '18px', color: '#fff' }).setOrigin(0.5);
 
+    // === Campo para nome do jogador (HTML Input) ===
+    let nomeSalvo = localStorage.getItem('nomeJogador') || 'JOGADOR';
+    let nomeInput = document.createElement('input');
+    nomeInput.type = 'text';
+    nomeInput.maxLength = 16;
+    nomeInput.value = nomeSalvo;
+    nomeInput.placeholder = 'Digite seu nome';
+    nomeInput.style.position = 'absolute';
+    nomeInput.style.top = '10px';
+    nomeInput.style.left = '50%';
+    nomeInput.style.transform = 'translateX(-50%)';
+    nomeInput.style.fontSize = '20px';
+    nomeInput.style.padding = '6px';
+    nomeInput.style.zIndex = 10;
+    nomeInput.style.textAlign = 'center';
+    nomeInput.style.borderRadius = '8px';
+    nomeInput.style.border = '1px solid #333';
+    nomeInput.autofocus = true;
+    document.body.appendChild(nomeInput);
+
+    // Remove input ao sair da cena
+    this.events.once('shutdown', () => { nomeInput.remove(); });
+
+    nomeInput.addEventListener('input', () => {
+      localStorage.setItem('nomeJogador', nomeInput.value.toUpperCase());
+    });
+
+    // === Botões de música ===
     const gameOptions = [
       { label: 'Música 1 – Fácil',   songKey: 'musica1', beatmapKey: 'bm1', speed: 1 },
       { label: 'Música 1 – Difícil', songKey: 'musica1', beatmapKey: 'bm1', speed: 1.5 },
@@ -34,9 +62,14 @@ class MenuScene extends Phaser.Scene {
       let btn = this.add.text(cx, 150 + i * 40, opt.label, { fontSize: '20px', color: '#fff', backgroundColor: '#444', padding: { left: 10, right: 10, top: 5, bottom: 5 } })
         .setOrigin(0.5)
         .setInteractive()
-        .on('pointerdown', () => { this.scene.start('GameScene', opt); });
+        .on('pointerdown', () => { 
+          let nome = nomeInput.value.trim() ? nomeInput.value.trim().toUpperCase() : 'JOGADOR';
+          localStorage.setItem('nomeJogador', nome);
+          this.scene.start('GameScene', {...opt, nomeJogador: nome}); 
+        });
     });
 
+    // Editor de beatmap
     this.add.text(cx, 420, 'Editor de Beatmap', { fontSize: '16px', color: '#fff' }).setOrigin(0.5);
 
     const editorOptions = [
@@ -64,6 +97,7 @@ class GameScene extends Phaser.Scene {
     this.songKey    = data.songKey;
     this.beatmapKey = data.beatmapKey;
     this.speed      = data.speed;
+    this.nomeJogador = data.nomeJogador || 'JOGADOR';
   }
   create() {
     const w = this.scale.width, h = this.scale.height, cx = w / 2;
@@ -73,10 +107,7 @@ class GameScene extends Phaser.Scene {
     const hitZoneW = Math.floor(w * 0.75);
     const hitZoneX = cx - hitZoneW / 2;
 
-    // Barra de acerto MAIOR (60 de altura)
     this.add.rectangle(hitZoneX, this.hitZoneY - 30, hitZoneW, 60, 0x888888).setOrigin(0, 0);
-
-    // Linha horizontal no meio da barra (vermelha)
     this.add.line(
       cx, this.hitZoneY,
       -hitZoneW/2, 0,
@@ -84,7 +115,6 @@ class GameScene extends Phaser.Scene {
       0xff0000
     ).setLineWidth(4);
 
-    // Teclas
     const teclas = ['A', 'S', 'D', 'F'];
     this.columnsX = [];
     const espacamento = hitZoneW / (teclas.length - 1);
@@ -95,13 +125,11 @@ class GameScene extends Phaser.Scene {
     }
     this.keys = this.input.keyboard.addKeys('A,S,D,F');
 
-    // Score
     this.score     = 0;
     this.combo     = 0;
     this.scoreText = this.add.text(20, 20, 'PONTOS: 0', { fontSize: '18px', color: '#fff' });
     this.comboText = this.add.text(20, 50, 'COMBO: 0', { fontSize: '18px', color: '#fff' });
 
-    // Feedback simples
     this.feedbackText = this.add.text(cx, this.hitZoneY - 70, '', { fontSize: '32px', color: '#fff' }).setOrigin(0.5).setAlpha(0);
     this.showFeedback = (txt, clr) => {
       this.feedbackText.setText(txt).setColor(clr || '#fff');
@@ -110,24 +138,41 @@ class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: this.feedbackText, alpha: 0, duration: 700, ease: 'Cubic.easeOut' });
     };
 
-    // Beatmap & notas
     this.beatmap       = this.cache.json.get(this.beatmapKey);
     this.nextNoteIndex = 0;
     this.notesGroup    = this.add.group();
 
-    this.spawnNote = (col) => {
+    this.ended = false;
+    this.totalNotas = this.beatmap.length;
+    this.pontuacaoMaxima = this.totalNotas * 100;
+    this.finalizeTimer = null;
+
+    this.spawnNote = (col, noteData) => {
       let rect = this.add.rectangle(this.columnsX[col], 0, w * 0.07, h * 0.04, 0xffffff, 1).setOrigin(0.5);
       rect.col = col;
       this.notesGroup.add(rect);
+
+      const timeToHit = ((noteData.time - this.getCurrentTime()) * 1000) / this.speed;
+      const timeToMiss = timeToHit + 300;
+      this.tweens.add({
+        targets: rect,
+        y: this.hitZoneY + 100,
+        duration: timeToMiss,
+        ease: 'Linear',
+        onComplete: () => {
+          if (rect.active) {
+            rect.destroy();
+            this.resetCombo();
+          }
+        }
+      });
       return rect;
     };
 
-    // Áudio
     this.track   = this.sound.add(this.songKey);
     this.started = false;
-    this.ready   = false; // Novo: bloqueia update até terminar a contagem
+    this.ready   = false;
 
-    // Botão de início
     const startBtn = this.add.text(cx, h * 0.5, 'COMEÇAR', { fontSize: '28px', color: '#fff', backgroundColor: '#222', padding: { left: 15, right: 15, top: 10, bottom: 10 } })
       .setOrigin(0.5)
       .setInteractive()
@@ -138,11 +183,22 @@ class GameScene extends Phaser.Scene {
         this.iniciarContagemRegressiva();
       });
 
-    // ESC volta ao menu
     this.input.keyboard.on('keydown-ESC', () => {
       this.track.stop();
       this.scene.start('MenuScene');
     });
+  }
+  getCurrentTime() {
+    return this.sound.context.currentTime - this.songStartTime;
+  }
+  getRecordKey() {
+    return `recorde_${this.nomeJogador}_${this.songKey}`;
+  }
+  getBestScore() {
+    return Number(localStorage.getItem(this.getRecordKey()) || 0);
+  }
+  setBestScore(score) {
+    localStorage.setItem(this.getRecordKey(), score);
   }
   iniciarContagemRegressiva() {
     const cx = this.scale.width / 2, cy = this.scale.height / 2;
@@ -166,7 +222,6 @@ class GameScene extends Phaser.Scene {
     tick();
   }
   somenteAgoraComeca() {
-    // Só começa a rodar update, música e notas agora!
     this.sound.context.resume().then(() => {
       this.songStartTime = this.sound.context.currentTime;
       this.track.play();
@@ -174,32 +229,33 @@ class GameScene extends Phaser.Scene {
     });
   }
   update() {
-    if (!this.started || !this.ready) return; // Espera a contagem acabar
+    if (!this.started || !this.ready || this.ended) return;
 
-    const currentTime = this.sound.context.currentTime - this.songStartTime;
+    const currentTime = this.getCurrentTime();
 
-    // Spawn
     while (
       this.nextNoteIndex < this.beatmap.length &&
       this.beatmap[this.nextNoteIndex].time <= currentTime + 1.5
     ) {
-      const { time, col } = this.beatmap[this.nextNoteIndex++];
-      const note = this.spawnNote(col);
-      this.tweens.add({
-        targets: note,
-        y: this.hitZoneY,
-        duration: ((time - currentTime) * 1000) / this.speed,
-        ease: 'Linear',
-        onComplete: () => note.destroy()
-      });
+      const noteData = this.beatmap[this.nextNoteIndex];
+      this.spawnNote(noteData.col, noteData);
+      this.nextNoteIndex++;
     }
 
-    // Hit logic
     ['A','S','D','F'].forEach((k,i) => {
       if (Phaser.Input.Keyboard.JustDown(this.keys[k])) {
         this.processHit(i);
       }
     });
+
+    // Checa se acabou tudo e inicia o timer de 3 segundos
+    if (!this.ended && this.nextNoteIndex >= this.totalNotas && this.notesGroup.countActive(true) === 0) {
+      if (!this.finalizeTimer) {
+        this.finalizeTimer = this.time.delayedCall(3000, () => {
+          this.showEndMessage();
+        });
+      }
+    }
   }
   processHit(colIndex) {
     const notes = this.notesGroup.getChildren().filter(n => n.col === colIndex);
@@ -211,7 +267,6 @@ class GameScene extends Phaser.Scene {
     const note = notes[0];
     const dy   = Math.abs(note.y - this.hitZoneY);
 
-    // MAIS FÁCIL: thresholds maiores!
     let result, pts, clr;
     if (dy < 30)      { result='PERFECT'; pts=100; clr='#0ff'; }
     else if (dy < 60) { result='GOOD';    pts=50;  clr='#ffd700'; }
@@ -223,14 +278,12 @@ class GameScene extends Phaser.Scene {
     this.scoreText.setText('PONTOS: ' + this.score);
     this.comboText.setText('COMBO: ' + this.combo);
     note.destroy();
-    // ANIMAÇÃO DE ACERTO
     this.showHitEffect(colIndex, result === 'PERFECT' ? 0x00ff88 : 0xffff00);
   }
   resetCombo() {
     this.combo = 0;
     this.comboText.setText('COMBO: ' + this.combo);
   }
-  // ========= NOVO: EFEITO DE ACERTO =========
   showHitEffect(col, color = 0x00ffff) {
     const w = this.scale.width, h = this.scale.height;
     let x = this.columnsX[col], y = this.hitZoneY;
@@ -242,6 +295,72 @@ class GameScene extends Phaser.Scene {
       duration: 330,
       ease: 'Cubic.easeOut',
       onComplete: () => circle.destroy()
+    });
+  }
+  showEndMessage() {
+    this.ended = true;
+    this.track.stop();
+
+    // Calcula percentual de pontuação
+    const perc = Math.round((this.score / this.pontuacaoMaxima) * 100);
+
+    let msg = '';
+    if (perc === 100) msg = 'PERFEITO! Você acertou tudo!';
+    else if (perc > 80) msg = 'Mandou MUITO bem!';
+    else if (perc >= 50) msg = 'Dá pra melhorar! Tente de novo!';
+    else msg = 'Precisa treinar mais!';
+
+    // Salvar melhor pontuação
+    let bestScore = this.getBestScore();
+    let isRecorde = false;
+    if (this.score > bestScore) {
+      this.setBestScore(this.score);
+      bestScore = this.score;
+      isRecorde = true;
+    }
+
+    this.feedbackText.setAlpha(0);
+
+    const cx = this.scale.width/2, cy = this.scale.height/2;
+    this.add.text(cx, cy-100, `JOGADOR: ${this.nomeJogador}`, {
+      fontSize: '26px', color: '#aaa'
+    }).setOrigin(0.5);
+
+    this.add.text(cx, cy-60, `Pontuação: ${this.score} pts`, {
+      fontSize: '32px', color: '#fff'
+    }).setOrigin(0.5);
+    
+    this.add.text(cx, cy-20, isRecorde ? `NOVO RECORDE! 🎉` : `Melhor: ${bestScore} pts`, {
+      fontSize: '24px', color: isRecorde ? '#00ff00' : '#ffd700'
+    }).setOrigin(0.5);
+
+    this.add.text(cx, cy+20, `${msg}`, {
+      fontSize: '32px', color: '#ffd700'
+    }).setOrigin(0.5);
+
+    // Botão Tente Novamente
+    let btnReplay = this.add.text(cx, cy+80, 'Tente novamente', {
+      fontSize: '26px', color: '#fff', backgroundColor: '#337', padding: { left: 16, right: 16, top: 8, bottom: 8 }
+    }).setOrigin(0.5).setInteractive();
+
+    btnReplay.on('pointerdown', () => {
+      this.scene.restart({
+        songKey: this.songKey,
+        beatmapKey: this.beatmapKey,
+        speed: this.speed,
+        nomeJogador: this.nomeJogador
+      });
+    });
+
+    // Botão Voltar ao Menu
+    let btnMenu = this.add.text(cx, cy+130, 'Voltar ao menu', {
+      fontSize: '22px', color: '#fff', backgroundColor: '#444', padding: { left: 14, right: 14, top: 7, bottom: 7 }
+    }).setOrigin(0.5).setInteractive();
+
+    btnMenu.on('pointerdown', () => this.scene.start('MenuScene'));
+
+    this.input.keyboard.once('keydown-ESC', () => {
+      this.scene.start('MenuScene');
     });
   }
 }
